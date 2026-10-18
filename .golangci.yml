@@ -1,0 +1,39 @@
+# Linter set aligned with what established public Go libraries enable
+# (cobra, rclone, go-github, bubbletea, gopenpgp): the standard set plus the
+# handful that appear in most of their configs, and the Go team's modernize
+# analyzers. See CONTRIBUTING.md for how to run it.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - modernize
+    - nolintlint
+    - revive
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        # G107: the CAPTCHA reverse proxy and the tests fetch caller-supplied
+        # local URLs by design.
+        - G107
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

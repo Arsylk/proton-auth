@@ -1,0 +1,48 @@
+# Builds the proton-auth CLI for GitHub Releases. Triggered by the Release
+# workflow on a v* tag. The library itself needs no release step: a tag is
+# enough for go get.
+version: 2
+
+project_name: proton-auth
+
+# No "go mod tidy" hook: CI already enforces a tidy go.mod (go mod tidy -diff),
+# and a hook that changed it here would make the release fail on a dirty tree.
+
+builds:
+  - id: proton-auth
+    main: ./cmd/proton-auth
+    binary: proton-auth
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'

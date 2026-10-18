@@ -2,3 +2,8 @@
 /proton-auth
 /proton-auth.exe
 *.exe
+*.test
+
+# release and coverage output
+/dist/
+coverage.out

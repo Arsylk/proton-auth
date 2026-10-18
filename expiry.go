@@ -3,6 +3,7 @@ package protonauth
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -20,6 +21,8 @@ type expiryCapture struct {
 	base      http.RoundTripper
 	expiresIn *int // seconds; written only on a successful /auth/v4 response
 }
+
+var _ http.RoundTripper = (*expiryCapture)(nil)
 
 func newExpiryCapture(base http.RoundTripper, out *int) *expiryCapture {
 	if base == nil {
@@ -43,9 +46,11 @@ func (c *expiryCapture) RoundTrip(req *http.Request) (*http.Response, error) {
 	body, readErr := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if readErr != nil {
-		// Hand go-proton-api an empty body; it will surface its own decode error.
-		resp.Body = io.NopCloser(bytes.NewReader(nil))
-		return resp, nil
+		// The connection died mid-body. Report that rather than handing
+		// go-proton-api an empty body, whose decode error would hide the
+		// cause; http.Client wraps it in a *url.Error, which Login classifies
+		// as ErrCodeConnection.
+		return nil, fmt.Errorf("reading the login response: %w", readErr)
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 
@@ -54,4 +59,17 @@ func (c *expiryCapture) RoundTrip(req *http.Request) (*http.Response, error) {
 		*c.expiresIn = parsed.ExpiresIn
 	}
 	return resp, nil
+}
+
+// CloseIdleConnections forwards to the wrapped transport. go-proton-api's
+// Manager.Close is http.Client.CloseIdleConnections, which only reaches a
+// transport that offers this method; without the forwarding, the connection
+// pool a login owns would outlive the login.
+func (c *expiryCapture) CloseIdleConnections() { closeIdle(c.base) }
+
+// closeIdle closes rt's idle connections if it knows how to.
+func closeIdle(rt http.RoundTripper) {
+	if c, ok := rt.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
 }

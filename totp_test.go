@@ -19,22 +19,32 @@ func TestGenerateTOTP(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if got := generateTOTP(secret, time.Unix(test.unix, 0)); got != test.want {
+		got, err := generateTOTP(secret, time.Unix(test.unix, 0))
+		if err != nil {
+			t.Fatalf("generateTOTP(%d): %v", test.unix, err)
+		}
+		if got != test.want {
 			t.Errorf("generateTOTP(%d) = %q, want %q", test.unix, got, test.want)
 		}
 	}
 }
 
-func TestGenerateTOTPAcceptsSpacesAndPadding(t *testing.T) {
+func TestGenerateTOTPAcceptsSpacesCaseAndPadding(t *testing.T) {
 	now := time.Unix(59, 0)
-	want := generateTOTP("MZXW6", now)
-	if got := generateTOTP("mz xw6===", now); got != want || got == "" {
-		t.Fatalf("generateTOTP() = %q, want %q", got, want)
+	want, err := generateTOTP("MZXW6", now)
+	if err != nil || want == "" {
+		t.Fatalf("baseline: %q, %v", want, err)
+	}
+	got, err := generateTOTP("mz xw6===", now)
+	if err != nil || got != want {
+		t.Fatalf("generateTOTP() = %q, %v; want %q", got, err, want)
 	}
 }
 
 func TestGenerateTOTPRejectsInvalidSecret(t *testing.T) {
-	if got := generateTOTP("not valid!", time.Unix(59, 0)); got != "" {
-		t.Fatalf("generateTOTP() = %q", got)
+	for _, secret := range []string{"not valid!", "", "   ", "==="} {
+		if got, err := generateTOTP(secret, time.Unix(59, 0)); err == nil {
+			t.Errorf("generateTOTP(%q) = %q, want an error", secret, got)
+		}
 	}
 }
