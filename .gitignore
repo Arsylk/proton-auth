@@ -1,0 +1,4 @@
+# built binaries
+/proton-auth
+/proton-auth.exe
+*.exe
