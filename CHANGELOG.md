@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Until 1.0.0 the Go API may still
 change between minor versions; such changes are called out below.
 
+## [0.2.0] - 2026-10-28
+
+### Added
+
+- `Options.SkipKeyPassword`: `Login` returns the session as soon as
+  authentication, including 2FA, succeeds, without fetching the user or the
+  key salts and without deriving or verifying the key password.
+  `Result.KeyPassword` is then empty and no mailbox password is asked for.
+  This is how Proton's own VPN clients log in, and it is needed for them:
+  a session opened under a VPN client identity (for example
+  `linux-vpn-cli@…` against `https://vpn-api.proton.me`) does not see the
+  account's keys, so a full login failed with `ErrCodeKeyPassword`
+  ("account has no primary key"). The default is unchanged. The CLI exposes
+  it as `-skip-key-password`; `keyPassword` is then an empty string in the
+  JSON result, whose fields are otherwise unchanged.
+
 ## [0.1.0] - 2026-10-18
 
 First public release, under the MIT license. The project grew out of the Go
@@ -128,4 +144,5 @@ none.
   derivatives log child-process noise on stderr) or the widget proxy's
   "proxy error: context canceled" line into the caller's output.
 
+[0.2.0]: https://github.com/Arsylk/proton-auth/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Arsylk/proton-auth/releases/tag/v0.1.0

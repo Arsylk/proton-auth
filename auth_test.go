@@ -880,6 +880,88 @@ func TestLoginGetUserFails(t *testing.T) {
 	f.assertRevoked(t, 1)
 }
 
+// SkipKeyPassword ends the login after 2FA, never before it.
+func TestLoginSkipKeyPasswordStillRequires2FA(t *testing.T) {
+	t.Parallel()
+	f := newFakeProton(t)
+	f.twoFA = proton.HasTOTP
+	f.accept2FA = func(code string) bool { return code == fakeTOTP }
+	opts := f.options()
+	opts.SkipKeyPassword = true
+
+	_, err := Login(t.Context(), opts, fakeCreds())
+	assertAuthError(t, err, ErrCode2FARequired)
+	f.assertRevoked(t, 1)
+
+	creds := fakeCreds()
+	creds.TOTPCode = "000000"
+	_, err = Login(t.Context(), opts, creds)
+	assertAuthError(t, err, ErrCode2FAFailed)
+	f.assertRevoked(t, 2)
+
+	creds.TOTPCode = fakeTOTP
+	res, err := Login(t.Context(), opts, creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AccessToken == "" || res.KeyPassword != "" {
+		t.Errorf("result = %+v, want a session without a key password", res)
+	}
+	f.assertRevoked(t, 2)
+}
+
+// On a two-password account no mailbox password is needed or asked for.
+func TestLoginSkipKeyPasswordTwoPassword(t *testing.T) {
+	t.Parallel()
+	f := newFakeProton(t)
+	f.mu.Lock()
+	f.passwordMode = 2
+	f.mu.Unlock()
+	f.expiresIn = 3600
+	opts := f.options()
+	opts.SkipKeyPassword = true
+	creds := fakeCreds()
+	creds.MailboxPasswordProvider = func(context.Context) (string, error) {
+		t.Error("mailbox password requested")
+		return "", nil
+	}
+
+	res, err := Login(t.Context(), opts, creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AccessToken == "" || res.RefreshToken == "" || res.UID == "" || res.UserID != f.userID {
+		t.Errorf("session incomplete: %+v", res)
+	}
+	if res.KeyPassword != "" {
+		t.Error("KeyPassword must be empty")
+	}
+	if res.PasswordMode != PasswordModeTwo || res.ExpiresIn != 3600 {
+		t.Errorf("PasswordMode = %v, ExpiresIn = %d, want two-password and 3600", res.PasswordMode, res.ExpiresIn)
+	}
+	f.assertRevoked(t, 0)
+}
+
+// The user (and so its keys) is never fetched: a session that cannot see
+// the account's keys, like Proton's VPN sessions, still logs in.
+func TestLoginSkipKeyPasswordFetchesNoUser(t *testing.T) {
+	t.Parallel()
+	f := newFakeProton(t)
+	f.failGetUser = true
+	opts := f.options()
+	opts.SkipKeyPassword = true
+
+	if _, err := Login(t.Context(), opts, fakeCreds()); err != nil {
+		t.Fatalf("login fetched the user: %v", err)
+	}
+	f.assertRevoked(t, 0)
+
+	// Without the option the same server fails the login, so the user
+	// endpoint really was the thing skipped.
+	_, err := Login(t.Context(), f.options(), fakeCreds())
+	assertAuthError(t, err, ErrCodeGetUser)
+}
+
 func TestLoginTwoPasswordMode(t *testing.T) {
 	t.Parallel()
 	f := newFakeProton(t)

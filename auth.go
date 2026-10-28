@@ -73,6 +73,15 @@ type Options struct {
 	// (the URL to open, a port-forward hint, progress). os.Stderr is the usual
 	// choice for a CLI. Nil is silent.
 	Output io.Writer
+	// SkipKeyPassword ends Login as soon as authentication, including 2FA,
+	// succeeds: the user, the key salts and the key password are neither
+	// fetched nor derived, no mailbox password is asked for, and
+	// Result.KeyPassword is empty. It is for clients that never decrypt
+	// account data, such as VPN clients; Proton's own VPN clients log in
+	// exactly this way. Sessions opened under a VPN client identity may not
+	// see the account's keys at all, and without this such a login fails
+	// with ErrCodeKeyPassword ("account has no primary key").
+	SkipKeyPassword bool
 }
 
 func (o Options) appVersion() string { return cmp.Or(o.AppVersion, DefaultAppVersion) }
@@ -168,21 +177,24 @@ type Result struct {
 	// UserID is Proton's identifier for the account.
 	UserID string
 	// KeyPassword is the derived passphrase that unlocks the user's primary
-	// key.
+	// key. It is empty with Options.SkipKeyPassword.
 	KeyPassword string
 	// ExpiresIn is the access-token lifetime in seconds, exactly as Proton
 	// returned it. It is 0 if Proton omitted it or it could not be read. No
 	// safety margin is applied and it is not turned into a timestamp; that
 	// policy belongs to the caller.
 	ExpiresIn int
-	// PasswordMode reports whether KeyPassword was derived from the login
-	// password (PasswordModeOne) or from the mailbox password (PasswordModeTwo).
+	// PasswordMode is the account's password mode as Proton reported it. When
+	// a key password was derived, it says from which password: the login
+	// password (PasswordModeOne) or the mailbox password (PasswordModeTwo).
+	// With Options.SkipKeyPassword nothing was derived and it only describes
+	// the account.
 	PasswordMode PasswordMode
 }
 
 // Login performs SRP authentication, solving a CAPTCHA in the browser if Proton
-// demands human verification, then completes 2FA if the account has it, and
-// derives the primary key password.
+// demands human verification, then completes 2FA if the account has it, and,
+// unless Options.SkipKeyPassword is set, derives the primary key password.
 //
 // Every error it returns is a *AuthError carrying a stable ErrCode. The
 // underlying cause, when there is one, is reachable with errors.As and
@@ -202,7 +214,7 @@ func Login(ctx context.Context, opts Options, creds Credentials) (*Result, error
 		return nil, err
 	}
 
-	res, err := s.finish(ctx, creds)
+	res, err := s.finish(ctx, creds, opts.SkipKeyPassword)
 	if err != nil {
 		s.revoke(ctx)
 	}
@@ -211,9 +223,10 @@ func Login(ctx context.Context, opts Options, creds Credentials) (*Result, error
 }
 
 // finish turns an SRP session into a Result: it completes 2FA if the account
-// has it, fetches the user and the key salts, derives the key password and
-// checks it against the primary key. Every error is a *AuthError.
-func (s *session) finish(ctx context.Context, creds Credentials) (*Result, error) {
+// has it, then, unless skipKeyPassword, fetches the user and the key salts,
+// derives the key password and checks it against the primary key. Every
+// error is a *AuthError.
+func (s *session) finish(ctx context.Context, creds Credentials, skipKeyPassword bool) (*Result, error) {
 	// TwoFA.Enabled is a bitmask of the account's second factors. Only TOTP is
 	// supported; Proton requires TOTP before a security key can be added, so
 	// the second case is defensive.
@@ -225,6 +238,20 @@ func (s *session) finish(ctx context.Context, creds Credentials) (*Result, error
 	case s.auth.TwoFA.Enabled != 0:
 		return nil, &AuthError{Code: ErrCode2FARequired, Message: fmt.Sprintf(
 			"the account's second factor (2FA status %d) is not TOTP; only TOTP codes are supported", s.auth.TwoFA.Enabled)}
+	}
+
+	// 2FA is done: the session is complete. Everything below only derives
+	// the key password, which session-only callers do without.
+	res := &Result{
+		AccessToken:  s.auth.AccessToken,
+		RefreshToken: s.auth.RefreshToken,
+		UID:          s.auth.UID,
+		UserID:       s.auth.UserID,
+		ExpiresIn:    s.expiresIn,
+		PasswordMode: PasswordMode(s.auth.PasswordMode),
+	}
+	if skipKeyPassword {
+		return res, nil
 	}
 
 	user, err := s.client.GetUser(ctx)
@@ -247,7 +274,7 @@ func (s *session) finish(ctx context.Context, creds Credentials) (*Result, error
 	// account the login password is reused. This mirrors Proton's web client,
 	// where keys unlock with the second password iff PasswordMode is
 	// TWO_PASSWORD (packages/shared/lib/authentication/twoFactor.ts).
-	mode := PasswordMode(s.auth.PasswordMode)
+	mode := res.PasswordMode
 	keySource, err := keyPasswordSource(ctx, mode, creds)
 	if err != nil {
 		return nil, err
@@ -274,15 +301,8 @@ func (s *session) finish(ctx context.Context, creds Credentials) (*Result, error
 		}
 	}
 
-	return &Result{
-		AccessToken:  s.auth.AccessToken,
-		RefreshToken: s.auth.RefreshToken,
-		UID:          s.auth.UID,
-		UserID:       s.auth.UserID,
-		KeyPassword:  string(keyPassword),
-		ExpiresIn:    s.expiresIn,
-		PasswordMode: mode,
-	}, nil
+	res.KeyPassword = string(keyPassword)
+	return res, nil
 }
 
 // primaryKey returns the user's primary key. go-proton-api's Keys.Primary

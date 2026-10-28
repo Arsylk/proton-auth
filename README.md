@@ -91,6 +91,21 @@ still fails (a wrong mailbox password, a rejected 2FA code, a cancellation),
 both are ignored and the login password unlocks the keys. `Result.PasswordMode`
 tells you which happened.
 
+**Session only (VPN clients).** Set `Options.SkipKeyPassword` when you only
+need the session's tokens. `Login` then stops after authentication and 2FA:
+the user, the key salts and the key password are not fetched, no mailbox
+password is asked for, and `Result.KeyPassword` is empty. Proton's VPN
+clients log in this way, and sessions opened under a VPN client identity do
+not see the account's keys, so they need it:
+
+```go
+res, err := protonauth.Login(ctx, protonauth.Options{
+    HostURL:         "https://vpn-api.proton.me",
+    AppVersion:      "linux-vpn-cli@5.8.3+x86-64", // what Proton's Linux VPN client sends
+    SkipKeyPassword: true,
+}, creds)
+```
+
 **Providers.** `TOTPProvider` and `MailboxPasswordProvider` are
 `func(ctx context.Context) (string, error)` and receive `Login`'s ctx. A prompt
 that returns `ctx.Err()` when the ctx ends makes `Login` fail with
@@ -221,6 +236,7 @@ history. Use the environment variable, `-password-stdin`, or the prompt.
 | `-app-version` | rclone Drive client | `X-Pm-Appversion` header |
 | `-user-agent` | desktop Chrome | `User-Agent` header |
 | `-expiry-fallback-hours` | `12` | `expiresAt` margin when Proton reports no lifetime |
+| `-skip-key-password` | | stop after authentication and 2FA; `keyPassword` is empty and no mailbox password is asked for (VPN clients, see [Session only](#library)) |
 | `-version` | | print the version and exit |
 
 Exit status is 0 on success and 1 on any failure, including a failure to write

@@ -98,6 +98,9 @@ func run() int {
 		"open Proton's CAPTCHA widget without logging in, to check the local server and browser wiring, then exit")
 	fallbackExpiryHours := flag.Int("expiry-fallback-hours", 12,
 		"expiresAt margin in hours from now, used only when Proton does not report a token lifetime")
+	skipKeyPassword := flag.Bool("skip-key-password", false,
+		"stop after authentication and 2FA without deriving the key password (keyPassword is empty); "+
+			"how Proton's VPN clients log in, needed with a VPN client -app-version")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -195,6 +198,7 @@ func run() int {
 		CaptchaAutoOpen: *captchaAutoOpen,
 		CaptchaTimeout:  *captchaTimeout,
 		RequestTimeout:  *requestTimeout,
+		SkipKeyPassword: *skipKeyPassword,
 		Output:          os.Stderr, // CAPTCHA instructions go to stderr; stdout is the JSON
 	}
 
