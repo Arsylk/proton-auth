@@ -41,7 +41,7 @@ jobs:
         run: |
           go mod tidy -diff
           go mod verify
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           # Pinned: a new linter release must not break CI without a change here.
           version: v2.15.0
